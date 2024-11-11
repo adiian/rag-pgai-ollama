@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Repository Search</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body class="container my-5">
+
+    <h1 class="mb-4">Repository Search</h1>
+
+    <!-- Repository Dropdown with Autocomplete -->
+    <div class="mb-3">
+        <label for="repoSelect" class="form-label">Select Repository</label>
+        <input class="form-control" id="repoSelect" placeholder="Start typing repository name..." list="repoList">
+        <datalist id="repoList"></datalist>
+    </div>
+
+    <!-- Question Text Area -->
+    <div class="mb-3">
+        <label for="queryInput" class="form-label">Your Question</label>
+        <textarea class="form-control" id="queryInput" rows="3" placeholder="Type your question here..."></textarea>
+    </div>
+
+    <!-- Submit Button -->
+    <button class="btn btn-primary" id="submitBtn">Submit</button>
+
+    <!-- Output Section -->
+    <div class="mt-5">
+        <h3>Output</h3>
+        <!-- LLM Response -->
+        <div id="llmResponse" class="p-3 bg-light border rounded mb-3"></div>
+        <!-- Relevant Chunks -->
+        <div id="chunksContainer"></div>
+    </div>
+
+    <script>
+        // Load existing repositories on page load
+        document.addEventListener("DOMContentLoaded", () => {
+            fetch("/get_repositories")
+                .then(response => response.json())
+                .then(data => {
+                    data.repositories.forEach(repo => {
+                        document.getElementById('repoList').insertAdjacentHTML('beforeend', `<option value="${repo.name}">`);
+                    });
+                })
+                .catch(error => {
+                    console.error("Error loading repositories:", error);
+                    document.getElementById('llmResponse').textContent = "Error loading repositories. Please check the server.";
+                });
+        });
+
+        // Submit button click handler
+        document.getElementById('submitBtn').addEventListener('click', () => {
+            const repoName = document.getElementById('repoSelect').value;
+            const question = document.getElementById('queryInput').value;
+
+            if (!repoName || !question) {
+                document.getElementById('llmResponse').textContent = "Please select a repository and enter a question.";
+                return;
+            }
+
+            fetch("/ask_question/", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({ query: question, repo: repoName })
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Display llm_response in a separate div
+                document.getElementById('llmResponse').innerHTML = marked.parse(data.llm_response);
+
+
+                // Display each chunk in a separate pre block
+                const chunksContainer = document.getElementById('chunksContainer');
+                chunksContainer.innerHTML = ''; // Clear previous content
+
+                data.relevant_chunks.forEach(chunk => {
+                    const chunkContent = `
+                        [From ${chunk.file_path}]: ${chunk.content}\n
+                        Similarity Score: ${chunk.similarity_score}
+                    `;
+                    const preElement = document.createElement("pre");
+                    preElement.classList.add("p-3", "bg-light", "border", "rounded", "mb-3");
+                    preElement.textContent = chunkContent;
+                    chunksContainer.appendChild(preElement);
+                });
+            })
+            .catch(error => {
+                console.error("Error:", error);
+                document.getElementById('llmResponse').textContent = "Error processing request. Please try again.";
+            });
+        });
+    </script>
+</body>
+</html>

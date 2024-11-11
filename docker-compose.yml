@@ -1,0 +1,93 @@
+version: '3.8'
+
+services:
+  timescaledb:
+    image: timescale/timescaledb-ha:pg16
+    container_name: timescaledb
+    environment:
+      POSTGRES_PASSWORD: password
+      #OPENAI_API_KEY: ${OPENAI_API_KEY}
+    ports:
+      - "5432:5432" # this is to allow direct connections to db, in prod should be removed
+    volumes:
+      - timescale_data:/var/lib/postgresql/data
+    networks:
+      - ollama
+      - db
+      - web  # this is to allow direct connections to db, in prod should be removed
+
+  ollama:
+    image: ollama/ollama:latest
+    #build:
+    #  context: ./ollama     
+    container_name: ollama
+#    ports:
+#      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+    environment:
+      - MODEL_ENDPOINT_MXBAI=mxbai-embed-large
+      - MODEL_ENDPOINT_LLAMA=llama3.2
+    networks:
+      - ollama
+#    deploy:
+#      resources:
+#        reservations:
+#          devices:
+#            - capabilities: [gpu]  # Uncomment if using GPU support
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com  # Set default pgAdmin login email
+      PGADMIN_DEFAULT_PASSWORD: admin         # Set default pgAdmin password
+    ports:
+      - "8765:80"  # Expose pgAdmin on port 8765
+    networks:
+      - db
+      - web
+
+  app:
+    build:
+      context: ./py  # Assumes your FastAPI app and Dockerfile are in the same directory
+    container_name: fastapi_app
+    environment:
+      DATABASE_URL: postgresql://postgres:password@timescaledb:5432/postgres  # Update if database name changes
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+    volumes:
+      - ./py/app:/app
+    ports:
+      - "8000:8000"  # Expose FastAPI on port 8000
+    depends_on:
+      - timescaledb
+      - ollama
+    networks:
+      - ollama
+      - db
+      - web
+    labels:
+      - "traefik.enable=true" # Enable Traefik for this container
+      - "traefik.docker.network=web" # Network to route through
+      - "traefik.http.routers.gitconecom-router.rule=Host(`gitcone.com`, `www.gitcone.com`, `static.gitcone.com`)" # Define hostnames for the router
+      - "traefik.http.routers.gitconecom-router.entrypoints=secure" # Use the secure (HTTPS) entrypoint
+      - "traefik.http.routers.gitconecom-router.tls=true" # Enable TLS
+      - "traefik.http.routers.gitconecom-router.tls.certresolver=le" # Use Let's Encrypt for cert resolution
+      - "traefik.http.services.gitconecom-service.loadbalancer.server.port=8000" # Internal FastAPI port to expose (adjust if different)
+
+
+volumes:
+  timescale_data:
+    driver: local
+  ollama_data:
+    driver: local
+#  py_app:
+#    driver: local    
+
+networks:
+  ollama:
+    driver: bridge  
+  db:
+    driver: bridge      
+  web:
+    external: true  
